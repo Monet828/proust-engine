@@ -7,7 +7,11 @@ from io import BytesIO
 # ==========================================
 # ★ここにAPIキーを貼り付けてください
 # ==========================================
-MY_API_KEY = "AIzaSyCn5comMnoV4tQz_rP4UFcPhwC3tMwhR6g"
+# Streamlitの金庫(Secrets)からキーを取得
+try:
+    MY_API_KEY = st.secrets["GEMINI_API_KEY"]
+except:
+    MY_API_KEY = ""
 
 # ---------------------------------------------------------
 # 🎨 UI設定 & CSSインジェクション (Luxury Monochrome)
