@@ -1,0 +1,82 @@
+[
+  {
+    "id": "ysl_libre",
+    "brand": "YSL Beauty",
+    "name": "Libre Eau de Parfum",
+    "description": "自由を身に纏う。ラベンダーとオレンジブロッサムのコントラスト。大胆でマスキュリンな要素を持つフェミニンな香り。",
+    "notes": "Lavender, Orange Blossom, Musk Accord",
+    "vibe": "Bold, Freedom, Cool"
+  },
+  {
+    "id": "margiela_library",
+    "brand": "Maison Margiela",
+    "name": "Replica Whispers in the Library",
+    "description": "オックスフォードの図書館。古書のページをめくる音、木の床のきしみ。静寂と集中。",
+    "notes": "Pepper, Vanilla, Cedarwood",
+    "vibe": "Nostalgic, Quiet, Intellectual"
+  },
+  {
+    "id": "margiela_sunday",
+    "brand": "Maison Margiela",
+    "name": "Replica Lazy Sunday Morning",
+    "description": "イタリア、フローレンスの清々しい朝。洗い立てのリネンのシーツに包まれて過ごす、穏やかな週末の時間。",
+    "notes": "Lily of the Valley, Iris, White Musk",
+    "vibe": "Clean, Fresh, Relaxing"
+  },
+  {
+    "id": "margiela_jazz",
+    "brand": "Maison Margiela",
+    "name": "Replica Jazz Club",
+    "description": "ブルックリンのジャズクラブ。薄暗い照明、リキュールのグラス、葉巻の煙。大人の隠れ家。",
+    "notes": "Rum, Tobacco Leaf, Pink Pepper",
+    "vibe": "Boozy, Warm, Masculine"
+  },
+  {
+    "id": "mugler_angel",
+    "brand": "Mugler",
+    "name": "Angel Eau de Parfum",
+    "description": "天使と悪魔の二面性。圧倒的な甘さと、冷たいパチョリの衝撃。銀河の彼方から来たような、常識を覆すグルマン。",
+    "notes": "Cotton Candy, Patchouli, Red Berries",
+    "vibe": "Chaotic, Otherworldly, Polarizing"
+  },
+  {
+    "id": "aesop_hwyl",
+    "brand": "Aesop",
+    "name": "Hwyl Eau de Parfum",
+    "description": "日本の古寺、苔むした庭園。ヒノキの静寂と、湿った土の匂い。都会の喧騒を遮断する、孤独で神聖な香り。",
+    "notes": "Cypress, Frankincense, Vetiver",
+    "vibe": "Spiritual, Earthy, Solitude"
+  },
+  {
+    "id": "ysl_tuxedo",
+    "brand": "YSL Le Vestiaire",
+    "name": "Tuxedo",
+    "description": "夜の正装。マットな黒い生地の感触。スパイシーでパウダリー、そして抗えないほど官能的。危険な魅力。",
+    "notes": "Black Pepper, Ambergris, Patchouli",
+    "vibe": "Sexy, Dark, Androgynous"
+  },
+  {
+    "id": "margiela_garden",
+    "brand": "Maison Margiela",
+    "name": "Replica From the Garden",
+    "description": "雨上がりの菜園。手についたトマトの葉の青臭さと、湿った黒い土。美しいだけではない、植物の生命力とリアリティ。",
+    "notes": "Tomato Leaf, Green Mandarin, Patchouli",
+    "vibe": "Green, Raw, Realistic"
+  },
+  {
+    "id": "armani_rouge",
+    "brand": "Armani Privé",
+    "name": "Rouge Malachite",
+    "description": "ロシアの情熱。赤い大理石のような硬度と、燃えるようなチュベローズ。圧倒的な存在感とラグジュアリー。",
+    "notes": "Tuberose, Sage, Amber",
+    "vibe": "Opulent, Intense, Passionate"
+  },
+  {
+    "id": "prada_infusion",
+    "brand": "Prada",
+    "name": "Infusion d'Iris",
+    "description": "究極の清潔感と、パウダリーな石鹸の記憶。古いイタリアの邸宅のリネン室。曖昧で、掴みどころのない透明感。",
+    "notes": "Iris, Neroli, Cedarwood",
+    "vibe": "Clean, Powdery, Timeless"
+  }
+]
