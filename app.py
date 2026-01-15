@@ -3,18 +3,19 @@ import json
 import requests
 import urllib.parse
 from io import BytesIO
+import time
 
 # ==========================================
-# ★ここにAPIキーを貼り付けてください
+# 🔑 APIキー設定 (Streamlit Secrets or Direct)
 # ==========================================
-# Streamlitの金庫(Secrets)からキーを取得
 try:
     MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    MY_API_KEY = ""
+    # ローカル実行やSecrets未設定時用（必要ならここに直接キーを書く）
+    MY_API_KEY = "AIza..." 
 
 # ---------------------------------------------------------
-# 🎨 UI設定 & CSSインジェクション (Luxury Monochrome)
+# 🎨 UI設定 & CSS (Silent Luxury Mode)
 # ---------------------------------------------------------
 st.set_page_config(page_title="Proust Engine", layout="wide")
 
@@ -39,7 +40,7 @@ st.markdown("""
         color: #000000;
         text-transform: uppercase;
     }
-
+    
     .caption-text {
         text-align: center;
         font-family: 'Cormorant Garamond', serif;
@@ -83,7 +84,7 @@ st.markdown("""
     hr { border-color: #E0E0E0; margin: 2rem 0; }
     header {visibility: hidden;}
     footer {visibility: hidden;}
-
+    
     .perfume-brand {
         font-family: 'Cormorant Garamond', serif;
         font-size: 1.2rem;
@@ -110,7 +111,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分
+# 🧠 ロジック部分 (Resilient AI Connection)
 # ---------------------------------------------------------
 
 try:
@@ -121,45 +122,60 @@ except:
 
 def fetch_image(url):
     try:
-        response = requests.get(url, timeout=20)
+        response = requests.get(url, timeout=15)
         if response.status_code == 200:
             return BytesIO(response.content)
     except:
         pass
     return None
 
-def get_working_model(api_key):
+def generate_content_with_failover(prompt, api_key):
     """
-    APIに問い合わせて、現在利用可能なモデル名を動的に取得する。
-    Flash -> Pro の順で優先して探す。
+    エラー(429等)が出たら、次のモデルに自動で切り替えて再試行する関数
     """
-    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        resp = requests.get(list_url, timeout=10)
-        if resp.status_code != 200:
-            return None
+    # 優先順位リスト：制限の厳しい最新版よりも、安定版を先に試す手もあるが、
+    # ここではエラーが出たら古くて安定したモデルへ落ちていく構成にする
+    candidate_models = [
+        "gemini-2.5-flash",       # 最新・高速（制限きついかも）
+        "gemini-1.5-flash",       # 安定・高速（制限ゆるい）
+        "gemini-1.5-flash-8b",    # 軽量版
+        "gemini-1.5-pro",         # 高性能版
+        "gemini-1.0-pro"          # 旧安定版
+    ]
 
-        models = resp.json().get('models', [])
+    last_error = None
 
-        # 1. Flash系を探す
-        for m in models:
-            if 'generateContent' in m.get('supportedGenerationMethods', []) and 'flash' in m['name']:
-                return m['name'].replace("models/", "")
+    for model in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
+        data = {"contents": [{"parts": [{"text": prompt}]}]}
+        
+        try:
+            # タイムアウト設定
+            response = requests.post(url, headers=headers, json=data, timeout=30)
+            
+            if response.status_code == 200:
+                # 成功したらその結果を返す
+                return response.json()
+            elif response.status_code == 429:
+                # 429 (Resource Exhausted) なら次のモデルへ
+                # print(f"Model {model} limit reached, switching...") 
+                continue
+            elif response.status_code == 404:
+                # モデルが見つからない場合も次へ
+                continue
+            else:
+                # その他のエラーは記録して次へ（念のため）
+                last_error = f"Error {response.status_code} on {model}"
+                continue
+                
+        except Exception as e:
+            last_error = str(e)
+            continue
 
-        # 2. Pro系を探す
-        for m in models:
-            if 'generateContent' in m.get('supportedGenerationMethods', []) and 'pro' in m['name']:
-                return m['name'].replace("models/", "")
+    # 全モデル全滅の場合
+    raise Exception(f"All models busy or failed. Last error: {last_error}")
 
-        # 3. 何でもいいから探す
-        for m in models:
-            if 'generateContent' in m.get('supportedGenerationMethods', []):
-                return m['name'].replace("models/", "")
-
-    except Exception:
-        return None
-
-    return "gemini-1.5-flash" # 最終フォールバック
 
 # --- UI Layout ---
 
@@ -176,76 +192,66 @@ with col1:
 if analyze_btn:
     if not user_input:
         st.warning("Please describe your memory.")
-    elif "AIza" not in MY_API_KEY:
-        st.error("API Key Not Found.")
+    elif len(MY_API_KEY) < 10:
+        st.error("API Key Not Found. Please check Streamlit Secrets.")
     else:
-        with st.spinner('Authenticating & Curating...'):
+        with st.spinner('Curating...'):
+            
+            prompt_text = f"""
+            You are a professional curator for a luxury perfume brand.
+            1. Select ONE perfume from the list that matches the user's memory.
+            2. Create a prompt for an oil painting.
+            
+            Return ONLY raw JSON:
+            {{
+                "perfume_name": "Name",
+                "brand": "Brand",
+                "reason": "Why it matches (Japanese, sophisticated tone)",
+                "poetry": "Poetic description (Japanese, artistic)",
+                "image_prompt": "Oil painting of [User Memory]. Moody, cinematic lighting, masterpiece, neutral colors. (English)"
+            }}
 
-            # ★ここで動的にモデルを探す
-            target_model = get_working_model(MY_API_KEY)
+            User Memory: "{user_input}"
+            List: {json.dumps(products, ensure_ascii=False)}
+            """
+            
+            try:
+                # ★ここが変更点：フェイルオーバー付き関数を呼び出す
+                result = generate_content_with_failover(prompt_text, MY_API_KEY)
+                
+                # 結果の解析
+                if 'candidates' in result:
+                    raw_text = result['candidates'][0]['content']['parts'][0]['text']
+                    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                    output = json.loads(raw_text)
+                    
+                    # 画像生成URL
+                    encoded_prompt = urllib.parse.quote(output['image_prompt'])
+                    seed = len(user_input) + len(output['perfume_name'])
+                    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
 
-            if not target_model:
-                st.error("Could not find any available Gemini models for this API Key.")
-            else:
-                # API Call
-                generate_url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={MY_API_KEY}"
-                headers = {'Content-Type': 'application/json'}
+                    with col2:
+                        image_data = fetch_image(image_url)
+                        if image_data:
+                            st.image(image_data, use_container_width=True)
+                        else:
+                            st.warning("Visualizing...")
+                        
+                        st.markdown(f"""
+                        <div style="margin-top: 20px;">
+                            <div class="perfume-brand">{output['brand']}</div>
+                            <div class="perfume-name">{output['perfume_name']}</div>
+                            <p style="font-family: 'Zen Old Mincho'; font-size: 0.95rem; line-height: 1.8; color: #444;">
+                                {output['reason']}
+                            </p>
+                            <div class="poetry-text">
+                                {output['poetry']}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.error("AI returned unexpected format.")
 
-                prompt_text = f"""
-                You are a professional curator for a luxury perfume brand.
-                1. Select ONE perfume from the list that matches the user's memory.
-                2. Create a prompt for an oil painting.
-
-                Return ONLY raw JSON:
-                {{
-                    "perfume_name": "Name",
-                    "brand": "Brand",
-                    "reason": "Why it matches (Japanese, sophisticated tone)",
-                    "poetry": "Poetic description (Japanese, artistic)",
-                    "image_prompt": "Oil painting of [User Memory]. Moody, cinematic lighting, masterpiece, neutral colors. (English)"
-                }}
-
-                User Memory: "{user_input}"
-                List: {json.dumps(products, ensure_ascii=False)}
-                """
-
-                try:
-                    response = requests.post(generate_url, headers=headers, json={"contents": [{"parts": [{"text": prompt_text}]}]}, timeout=30)
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        try:
-                            raw_text = result['candidates'][0]['content']['parts'][0]['text']
-                            raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-                            output = json.loads(raw_text)
-
-                            encoded_prompt = urllib.parse.quote(output['image_prompt'])
-                            seed = len(user_input) + len(output['perfume_name'])
-                            image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
-
-                            with col2:
-                                image_data = fetch_image(image_url)
-                                if image_data:
-                                    st.image(image_data, use_container_width=True)
-                                else:
-                                    st.warning("Visualizing...")
-
-                                st.markdown(f"""
-                                <div style="margin-top: 20px;">
-                                    <div class="perfume-brand">{output['brand']}</div>
-                                    <div class="perfume-name">{output['perfume_name']}</div>
-                                    <p style="font-family: 'Zen Old Mincho'; font-size: 0.95rem; line-height: 1.8; color: #444;">
-                                        {output['reason']}
-                                    </p>
-                                    <div class="poetry-text">
-                                        {output['poetry']}
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        except Exception as e:
-                            st.error(f"Processing Error: {e}")
-                    else:
-                        st.error(f"API Error ({response.status_code}): {response.text}")
-
-                except Exception as e:
-                    st.error(f"System Error: {e}")
+            except Exception as e:
+                st.error(f"System Busy: {e}")
+                st.caption("Please try again in a moment.")
