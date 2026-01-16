@@ -3,6 +3,7 @@ import json
 import requests
 import urllib.parse
 from io import BytesIO
+import time
 
 # ==========================================
 # 🔑 APIキー取得
@@ -27,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分 (Optimized for 2.0 Flash Lite)
+# 🧠 ロジック部分 (Alias Strategy)
 # ---------------------------------------------------------
 
 try:
@@ -45,6 +46,60 @@ def fetch_image(url):
         pass
     return None
 
+def try_generate_content(prompt, api_key):
+    """
+    あなたのリストにあった「エイリアス（別名）」を優先的に試し、
+    制限の壁（429/404）を突破するまで粘る関数
+    """
+    # 優先順位リスト：
+    # 1. gemini-flash-latest: 最新の安定版Flashへのエイリアス（最も期待大）
+    # 2. gemini-pro-latest: 最新の安定版Proへのエイリアス
+    # 3. gemini-2.0-flash-lite-preview-02-05: リストにあった日付付きのマイナー版（穴場の可能性）
+    candidate_models = [
+        "gemini-flash-latest",  
+        "gemini-pro-latest",
+        "gemini-2.0-flash-lite-preview-02-05", 
+        "gemini-2.0-flash-lite" 
+    ]
+    
+    last_error_msg = ""
+
+    for model in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
+        data = {"contents": [{"parts": [{"text": prompt}]}]}
+        
+        try:
+            # タイムアウト設定
+            response = requests.post(url, headers=headers, json=data, timeout=25)
+            
+            if response.status_code == 200:
+                # 成功したら即終了！
+                return response.json(), model
+            
+            # エラーの場合
+            error_data = response.json()
+            err_msg = error_data.get('error', {}).get('message', 'Unknown Error')
+            
+            # 429(制限)か404(なし)なら、次を試す
+            if response.status_code in [404, 429, 500, 503]:
+                # st.warning(f"Model {model} failed ({response.status_code}), switching...") # デバッグ用
+                last_error_msg = f"{model}: {err_msg}"
+                time.sleep(1) # 連打判定を避けるため少し待つ
+                continue
+            else:
+                # それ以外の変なエラー（認証エラーなど）は停止
+                raise Exception(f"{model} Error: {err_msg}")
+                
+        except Exception as e:
+            last_error_msg = str(e)
+            continue
+
+    # 全滅した場合
+    raise Exception(f"All attempts failed. Last error: {last_error_msg}")
+
+# --- UI ---
+
 st.markdown("<h1>THE PROUST ENGINE</h1>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([1, 1], gap="large")
@@ -59,13 +114,8 @@ if analyze_btn:
     elif len(api_key) < 10:
         st.error("API Key Error. Please check Secrets.")
     else:
-        # ★あなたの環境にあるモデルの中で、最も制限にかかりにくいものを使用
-        target_model = "gemini-2.0-flash-lite"
         
-        with st.spinner(f'Processing with {target_model}...'):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
-            headers = {'Content-Type': 'application/json'}
-            
+        with st.spinner(f'Connecting to Neural Network...'):
             prompt_text = f"""
             You are a perfumer. Select ONE perfume from the list matching the user's memory.
             Return ONLY raw JSON:
@@ -80,47 +130,33 @@ if analyze_btn:
             List: {json.dumps(products, ensure_ascii=False)}
             """
             
-            data = {"contents": [{"parts": [{"text": prompt_text}]}]}
-            
             try:
-                response = requests.post(url, headers=headers, json=data, timeout=30)
+                # 複数モデルでチャレンジ
+                result, success_model = try_generate_content(prompt_text, api_key)
                 
-                if response.status_code != 200:
-                    # Liteもダメなら、次は標準の2.0を試すフェイルオーバー
-                    fallback_model = "gemini-2.0-flash"
-                    # st.warning(f"Lite limit reached ({response.status_code}), trying {fallback_model}...")
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent?key={api_key}"
-                    response = requests.post(url, headers=headers, json=data, timeout=30)
+                # st.success(f"Connected via: {success_model}") # 成功したらどのモデルか表示（デバッグ用）
                 
-                if response.status_code != 200:
-                    st.error(f"API Error ({response.status_code})")
-                    try:
-                        st.json(response.json())
-                    except:
-                        st.write(response.text)
-                else:
-                    result = response.json()
-                    raw_text = result['candidates'][0]['content']['parts'][0]['text']
-                    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-                    output = json.loads(raw_text)
-                    
-                    encoded_prompt = urllib.parse.quote(output['image_prompt'])
-                    import time
-                    seed = int(time.time())
-                    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
+                raw_text = result['candidates'][0]['content']['parts'][0]['text']
+                raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                output = json.loads(raw_text)
+                
+                encoded_prompt = urllib.parse.quote(output['image_prompt'])
+                seed = int(time.time())
+                image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
 
-                    with col2:
-                        image_data = fetch_image(image_url)
-                        if image_data:
-                            st.image(image_data, use_container_width=True)
-                        else:
-                            st.info("Loading Image...")
-                            st.markdown(f"[View Image]({image_url})")
-                        
-                        st.markdown(f"**{output['brand']} - {output['perfume_name']}**")
-                        st.write(output['reason'])
-                        st.markdown(f"*{output['poetry']}*")
+                with col2:
+                    image_data = fetch_image(image_url)
+                    if image_data:
+                        st.image(image_data, use_container_width=True)
+                    else:
+                        st.info("Loading Image...")
+                        st.markdown(f"[View Image]({image_url})")
+                    
+                    st.markdown(f"**{output['brand']} - {output['perfume_name']}**")
+                    st.write(output['reason'])
+                    st.markdown(f"*{output['poetry']}*")
 
             except Exception as e:
-                st.error("System Error")
-                st.write(e)
+                st.error("System Busy")
+                st.error(e)
+                st.caption("Please wait 1 minute and try again.")
