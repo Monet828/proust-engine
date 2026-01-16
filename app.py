@@ -6,10 +6,12 @@ from io import BytesIO
 import time
 
 # ==========================================
-# 🔑 APIキー取得 (Secretsからのみ読み込む安全仕様)
+# 🔑 APIキー取得
 # ==========================================
-# ここにキーを直接書いてはいけません！
 api_key = st.secrets.get("GEMINI_API_KEY", "")
+if not api_key:
+    # Secretsがない場合の予備（ここに直接新しいキーを貼っても動きますが、Secrets推奨）
+    api_key = "" 
 
 # ==========================================
 # 🎨 UI設定
@@ -27,7 +29,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分
+# 🧠 ロジック部分 (Total War Mode)
 # ---------------------------------------------------------
 
 try:
@@ -46,16 +48,21 @@ def fetch_image(url):
     return None
 
 def try_generate_content(prompt, api_key):
-    # 最新の安定版へのエイリアスを使用
-    # これならバージョン指定の制限を回避しやすい
+    """
+    あなたのリストにある「軽量モデル」や「別系統のモデル(Gemma)」を含めて
+    使えるものを片っ端から試す総力戦関数
+    """
+    # 候補リスト：上から順に試します
     candidate_models = [
-        "gemini-flash-latest",
-        "gemini-pro-latest",
-        "gemini-2.0-flash-lite-preview-02-05", 
-        "gemini-1.5-flash-latest"
+        "gemini-2.0-flash-lite-preview-02-05", # 一番具体的で軽量な最新版
+        "gemini-2.0-flash-lite",                # その次
+        "gemini-flash-lite-latest",             # ライト系のエイリアス
+        "gemma-3-4b-it",                        # GeminiがダメならGemma(Googleの別モデル)
+        "gemma-3-27b-it",                       # Gemmaの大きい方
+        "gemini-2.0-flash-exp"                  # 実験版（ダメ元）
     ]
     
-    last_error_msg = ""
+    errors_log = []
 
     for model in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -63,27 +70,31 @@ def try_generate_content(prompt, api_key):
         data = {"contents": [{"parts": [{"text": prompt}]}]}
         
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=25)
+            # タイムアウト設定
+            response = requests.post(url, headers=headers, json=data, timeout=20)
             
             if response.status_code == 200:
+                # 成功したらモデル名と共に返す
                 return response.json(), model
             
+            # エラーの場合
             error_data = response.json()
             err_msg = error_data.get('error', {}).get('message', 'Unknown Error')
             
-            if response.status_code in [404, 429, 500, 503]:
-                last_error_msg = f"{model}: {err_msg}"
-                time.sleep(1) 
-                continue
-            else:
-                # 認証エラー等は即座に報告
-                raise Exception(f"{model} Error: {err_msg}")
+            # 画面に「このモデルはダメでした」と表示（デバッグ用）
+            st.warning(f"⚠️ {model} failed: {err_msg}")
+            
+            errors_log.append(f"{model}: {err_msg}")
+            time.sleep(1) # 連打判定回避
+            continue
                 
         except Exception as e:
-            last_error_msg = str(e)
+            st.warning(f"⚠️ {model} system error: {str(e)}")
+            errors_log.append(f"{model} Exception: {str(e)}")
             continue
 
-    raise Exception(f"All attempts failed. Last error: {last_error_msg}")
+    # 全滅した場合
+    raise Exception("All models failed. Check warnings above.")
 
 # --- UI ---
 
@@ -98,11 +109,11 @@ with col1:
 if analyze_btn:
     if not user_input:
         st.warning("Please describe your memory.")
-    elif not api_key:
-        st.error("❌ API Key Not Found.")
-        st.info("Please set 'GEMINI_API_KEY' in Streamlit Cloud Secrets.")
+    elif len(api_key) < 10:
+        st.error("API Key is missing. Please check Streamlit Secrets.")
     else:
-        with st.spinner(f'Connecting to Neural Network...'):
+        with st.spinner(f'Searching for available AI model...'):
+            
             prompt_text = f"""
             You are a perfumer. Select ONE perfume from the list matching the user's memory.
             Return ONLY raw JSON:
@@ -118,28 +129,34 @@ if analyze_btn:
             """
             
             try:
+                # 総当たり実行
                 result, success_model = try_generate_content(prompt_text, api_key)
                 
-                raw_text = result['candidates'][0]['content']['parts'][0]['text']
-                raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-                output = json.loads(raw_text)
+                # 成功したモデルを表示（よかった！）
+                st.success(f"✅ Connected to: {success_model}") 
                 
-                encoded_prompt = urllib.parse.quote(output['image_prompt'])
-                seed = int(time.time())
-                image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
-
-                with col2:
-                    image_data = fetch_image(image_url)
-                    if image_data:
-                        st.image(image_data, use_container_width=True)
-                    else:
-                        st.info("Loading Image...")
-                        st.markdown(f"[View Image]({image_url})")
+                if 'candidates' in result:
+                    raw_text = result['candidates'][0]['content']['parts'][0]['text']
+                    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                    output = json.loads(raw_text)
                     
-                    st.markdown(f"**{output['brand']} - {output['perfume_name']}**")
-                    st.write(output['reason'])
-                    st.markdown(f"*{output['poetry']}*")
+                    encoded_prompt = urllib.parse.quote(output['image_prompt'])
+                    seed = int(time.time())
+                    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
+
+                    with col2:
+                        image_data = fetch_image(image_url)
+                        if image_data:
+                            st.image(image_data, use_container_width=True)
+                        else:
+                            st.info("Loading Image...")
+                            st.markdown(f"[View Image]({image_url})")
+                        
+                        st.markdown(f"**{output['brand']} - {output['perfume_name']}**")
+                        st.write(output['reason'])
+                        st.markdown(f"*{output['poetry']}*")
+                else:
+                    st.error("AI responded but format was wrong.")
 
             except Exception as e:
-                st.error("Error")
-                st.write(e)
+                st.error("❌ Final Error: All attempts failed.")
