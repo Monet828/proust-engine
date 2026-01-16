@@ -27,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分 (Hardcoded Safe Model)
+# 🧠 ロジック部分 (Smart Select / No 2.5)
 # ---------------------------------------------------------
 
 try:
@@ -45,6 +45,46 @@ def fetch_image(url):
         pass
     return None
 
+def get_safe_model(api_key):
+    """
+    利用可能なモデル一覧を取得し、制限のきつい「2.5」を除外して、
+    最も安全なモデル(1.5 Flash等)を自動選択する。
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            return "gemini-pro" # フォールバック
+        
+        models = response.json().get('models', [])
+        
+        # ★ここが重要: 「2.5」という文字が入っているモデルを徹底的に除外する
+        candidates = [
+            m['name'].replace("models/", "") 
+            for m in models 
+            if 'generateContent' in m.get('supportedGenerationMethods', [])
+            and '2.5' not in m['name']  # <--- 2.5禁止令
+        ]
+        
+        if not candidates:
+            # 万が一全部2.5だったら諦めて最初のを返す
+            return "gemini-2.5-flash"
+
+        # 優先順位: 1.5 Flash -> 1.5 Pro -> その他
+        for m in candidates:
+            if 'flash' in m and '1.5' in m: return m
+        for m in candidates:
+            if 'flash' in m: return m
+        for m in candidates:
+            if 'pro' in m and '1.5' in m: return m
+            
+        return candidates[0]
+        
+    except:
+        return "gemini-pro"
+
+# --- UI ---
+
 st.markdown("<h1>THE PROUST ENGINE</h1>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([1, 1], gap="large")
@@ -59,10 +99,12 @@ if analyze_btn:
     elif len(api_key) < 10:
         st.error("API Key Error. Please check Secrets.")
     else:
-        # ★ここが変更点：もう迷わせない。「gemini-1.5-flash」を指名手配する
-        target_model = "gemini-1.5-flash"
-        
-        with st.spinner(f'Processing...'):
+        # 安全なモデルを探索
+        with st.spinner('Initializing...'):
+            target_model = get_safe_model(api_key)
+            # st.success(f"Selected Model: {target_model}") # デバッグ用（あとで消してOK）
+
+        with st.spinner(f'Curating...'):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
             headers = {'Content-Type': 'application/json'}
             
@@ -86,9 +128,11 @@ if analyze_btn:
                 response = requests.post(url, headers=headers, json=data, timeout=30)
                 
                 if response.status_code != 200:
-                    # エラーが出たら画面に出す（これで何が起きたか絶対わかる）
                     st.error(f"API Error ({response.status_code})")
-                    st.write(response.json())
+                    try:
+                        st.json(response.json())
+                    except:
+                        st.write(response.text)
                 else:
                     result = response.json()
                     raw_text = result['candidates'][0]['content']['parts'][0]['text']
@@ -96,7 +140,10 @@ if analyze_btn:
                     output = json.loads(raw_text)
                     
                     encoded_prompt = urllib.parse.quote(output['image_prompt'])
-                    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&model=flux"
+                    # キャッシュ回避のためseedを時間ベースに
+                    import time
+                    seed = int(time.time())
+                    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
 
                     with col2:
                         image_data = fetch_image(image_url)
