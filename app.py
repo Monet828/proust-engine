@@ -13,7 +13,7 @@ if not api_key:
     api_key = "" 
 
 # ==========================================
-# 🎨 UI設定 (Visual Luxury)
+# 🎨 UI設定
 # ==========================================
 st.set_page_config(page_title="Proust Engine", layout="wide")
 st.markdown("""
@@ -60,11 +60,9 @@ st.markdown("""
     
     header, footer { visibility: hidden; }
     
-    .result-box {
-        animation: fadeIn 2s;
-        margin-top: 20px;
-        padding: 20px;
-        border-top: 1px solid #eee;
+    /* 結果表示エリアのアニメーション */
+    .fade-in {
+        animation: fadeIn 1.5s ease-in-out;
     }
     @keyframes fadeIn {
         0% { opacity: 0; transform: translateY(10px); }
@@ -74,7 +72,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分 (Direct & Creative)
+# 🧠 ロジック部分
 # ---------------------------------------------------------
 
 try:
@@ -97,28 +95,25 @@ if analyze_btn:
     elif not api_key:
         st.error("API Key Not Found.")
     else:
-        # 成功実績のあるモデル一本釣り
+        # 実績のあるモデルを使用
         target_model = "gemini-flash-lite-latest"
         
         with st.spinner(f'Consulting the Archivist...'):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
             headers = {'Content-Type': 'application/json'}
             
-            # プロンプトを強化して「しょぼさ」を回避
             prompt_text = f"""
-            Act as a world-class luxury perfume curator and poet.
-            Analyze the user's memory and select the ONE most suitable perfume from the list.
+            Act as a world-class luxury perfume curator.
+            Select the ONE most suitable perfume from the list matching the user's memory.
 
-            Your output must be in JSON format strictly.
+            Output Format: JSON ONLY.
             
-            1. "reason": Explain the connection between the memory and the scent in elegant, sophisticated Japanese. (Avoid simple explanations. Be dreamy.)
-            2. "poetry": Write a short, haiku-like or poetic phrase in Japanese that captures the essence.
-            3. "image_prompt": A description for an AI image generator. "Oil painting style, moody, cinematic lighting, masterpiece, [User's Memory details]". (English)
+            1. "reason": Elegant, sophisticated Japanese description. Dreamy tone.
+            2. "poetry": A short poetic phrase in Japanese.
+            3. "image_prompt": "Oil painting style, moody, cinematic lighting, masterpiece, [User's Memory details]". (English)
 
             User Memory: "{user_input}"
             Product List: {json.dumps(products, ensure_ascii=False)}
-            
-            Return ONLY raw JSON. No markdown formatting.
             """
             
             data = {"contents": [{"parts": [{"text": prompt_text}]}]}
@@ -129,7 +124,6 @@ if analyze_btn:
                 if response.status_code != 200:
                     st.error(f"Connection Error: {response.status_code}")
                 else:
-                    # JSONのクリーニング処理（Liteモデルはたまに余計な文字をつけるため）
                     result = response.json()
                     raw_text = result['candidates'][0]['content']['parts'][0]['text']
                     raw_text = raw_text.replace("```json", "").replace("```", "").strip()
@@ -137,33 +131,42 @@ if analyze_btn:
                     try:
                         output = json.loads(raw_text)
                         
-                        # 画像生成URL作成
+                        # 画像URL
                         prompt_str = output.get('image_prompt', user_input)
-                        encoded_prompt = urllib.parse.quote(prompt_str[:200]) # 長すぎるとエラーになるのでカット
-                        
-                        # 毎回違う絵が出るようにSeedをランダム化
+                        encoded_prompt = urllib.parse.quote(prompt_str[:200])
                         seed = random.randint(1, 99999)
                         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
 
                         with col2:
-                            # ★変更点：fetchせず直接表示（これで画像が出るはず！）
-                            st.image(image_url, use_container_width=True)
-                            
+                            # レイアウト変更：名前を最優先に表示
                             st.markdown(f"""
-                            <div class="result-box">
-                                <div style="font-size: 1.2rem; color: #666; letter-spacing: 0.1em; text-transform: uppercase;">{output.get('brand', '')}</div>
-                                <div style="font-size: 2.2rem; margin-bottom: 1rem; font-family: 'Cormorant Garamond';">{output.get('perfume_name', '')}</div>
-                                <p style="line-height: 1.8; color: #333; font-size: 1rem;">
-                                    {output.get('reason', '')}
-                                </p>
-                                <div style="font-style: italic; border-left: 2px solid #000; padding-left: 1rem; margin-top: 1.5rem; color: #555;">
-                                    {output.get('poetry', '')}
+                            <div class="fade-in" style="text-align: center; margin-bottom: 20px;">
+                                <div style="font-family: 'Cormorant Garamond'; font-size: 3.5rem; line-height: 1.1; color: #000; margin-bottom: 5px;">
+                                    {output.get('perfume_name', '')}
+                                </div>
+                                <div style="font-size: 1rem; color: #666; letter-spacing: 0.2em; text-transform: uppercase;">
+                                    {output.get('brand', '')}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                    except json.JSONDecodeError:
-                        st.error("AI Analysis Incomplete. Please try again.")
+                            # その下に画像
+                            st.image(image_url, use_container_width=True)
+                            
+                            # 最後に解説
+                            st.markdown(f"""
+                            <div class="fade-in" style="margin-top: 25px; padding: 0 10px;">
+                                <p style="line-height: 1.8; color: #333; font-size: 1.05rem; font-family: 'Zen Old Mincho'; text-align: justify;">
+                                    {output.get('reason', '')}
+                                </p>
+                                <div style="font-style: italic; text-align: center; margin-top: 2rem; color: #555; font-family: 'Zen Old Mincho';">
+                                    ― {output.get('poetry', '')}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                    except Exception as e:
+                        st.error("Data Parse Error")
 
             except Exception as e:
                 st.error(f"System Error: {str(e)}")
