@@ -9,8 +9,7 @@ from io import BytesIO
 # ==========================================
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
-    # Secretsがない場合の予備
-    api_key = "ここに直接APIキーを書いても動きます" 
+    api_key = "ここに直接APIキーを書いてもOK" 
 
 # ==========================================
 # 🎨 UI設定
@@ -28,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分 (完全自律型)
+# 🧠 ロジック部分 (Hardcoded Safe Model)
 # ---------------------------------------------------------
 
 try:
@@ -46,42 +45,6 @@ def fetch_image(url):
         pass
     return None
 
-def get_available_model(api_key):
-    """
-    Googleに「使えるモデル一覧」を問い合わせて、
-    GenerateContent（文章生成）ができるモデルを自動で1つ選んで返す関数
-    """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200:
-            return "gemini-pro" # 取得失敗したらとりあえず古いのを使う
-        
-        models = response.json().get('models', [])
-        
-        # 文章生成ができるモデルだけを抜き出す
-        candidates = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
-        
-        if not candidates:
-            return "gemini-pro"
-
-        # 優先順位：Flash -> Pro -> その他
-        # モデル名は 'models/gemini-1.5-flash' のように返ってくるので整形する
-        for m in candidates:
-            if 'flash' in m and '1.5' in m: return m.replace("models/", "")
-        for m in candidates:
-            if 'flash' in m: return m.replace("models/", "")
-        for m in candidates:
-            if 'pro' in m and '1.5' in m: return m.replace("models/", "")
-            
-        # どうしても見つからなければリストの先頭を使う
-        return candidates[0].replace("models/", "")
-        
-    except:
-        return "gemini-pro"
-
-# --- UI ---
-
 st.markdown("<h1>THE PROUST ENGINE</h1>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([1, 1], gap="large")
@@ -96,12 +59,10 @@ if analyze_btn:
     elif len(api_key) < 10:
         st.error("API Key Error. Please check Secrets.")
     else:
-        # ★ここで自動的にモデルを決める
-        with st.spinner('Connecting to AI...'):
-            target_model = get_available_model(api_key)
-            # st.caption(f"Connected to: {target_model}") # デバッグ用（本番では消してOK）
-
-        with st.spinner(f'Curating with {target_model}...'):
+        # ★ここが変更点：もう迷わせない。「gemini-1.5-flash」を指名手配する
+        target_model = "gemini-1.5-flash"
+        
+        with st.spinner(f'Processing...'):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
             headers = {'Content-Type': 'application/json'}
             
@@ -125,6 +86,7 @@ if analyze_btn:
                 response = requests.post(url, headers=headers, json=data, timeout=30)
                 
                 if response.status_code != 200:
+                    # エラーが出たら画面に出す（これで何が起きたか絶対わかる）
                     st.error(f"API Error ({response.status_code})")
                     st.write(response.json())
                 else:
