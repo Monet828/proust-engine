@@ -27,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 🧠 ロジック部分 (Smart Select / No 2.5)
+# 🧠 ロジック部分 (Strict Whitelist Mode)
 # ---------------------------------------------------------
 
 try:
@@ -45,43 +45,44 @@ def fetch_image(url):
         pass
     return None
 
-def get_safe_model(api_key):
+def get_strictly_safe_model(api_key):
     """
-    利用可能なモデル一覧を取得し、制限のきつい「2.5」を除外して、
-    最も安全なモデル(1.5 Flash等)を自動選択する。
+    実験版(exp)や最新版(2.0/2.5)を徹底的に排除し、
+    確実に動く「1.5系」か「1.0系」だけを選んで返す。
     """
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
         response = requests.get(url, timeout=10)
         if response.status_code != 200:
-            return "gemini-pro" # フォールバック
+            return "gemini-pro", ["Connection Failed"]
         
         models = response.json().get('models', [])
+        all_names = [m['name'].replace("models/", "") for m in models]
         
-        # ★ここが重要: 「2.5」という文字が入っているモデルを徹底的に除外する
+        # 候補: 文章生成ができて、かつ変なバージョンじゃないやつ
         candidates = [
-            m['name'].replace("models/", "") 
-            for m in models 
-            if 'generateContent' in m.get('supportedGenerationMethods', [])
-            and '2.5' not in m['name']  # <--- 2.5禁止令
+            name for name in all_names
+            if 'generateContent' in next((m['supportedGenerationMethods'] for m in models if m['name'].endswith(name)), [])
         ]
         
-        if not candidates:
-            # 万が一全部2.5だったら諦めて最初のを返す
-            return "gemini-2.5-flash"
-
-        # 優先順位: 1.5 Flash -> 1.5 Pro -> その他
+        # ★ 優先順位付き指名手配（ホワイトリスト）
+        # 1. 1.5 Flash (最も安全・高速)
         for m in candidates:
-            if 'flash' in m and '1.5' in m: return m
-        for m in candidates:
-            if 'flash' in m: return m
-        for m in candidates:
-            if 'pro' in m and '1.5' in m: return m
+            if '1.5' in m and 'flash' in m and 'exp' not in m and '8b' not in m: return m, all_names
             
-        return candidates[0]
+        # 2. 1.5 Pro (次に安全)
+        for m in candidates:
+            if '1.5' in m and 'pro' in m and 'exp' not in m: return m, all_names
+
+        # 3. 1.0 Pro (古いけど確実)
+        for m in candidates:
+            if '1.0' in m and 'pro' in m: return m, all_names
+            
+        # 全滅時はgemini-proを返す
+        return "gemini-pro", all_names
         
     except:
-        return "gemini-pro"
+        return "gemini-pro", []
 
 # --- UI ---
 
@@ -92,6 +93,17 @@ col1, col2 = st.columns([1, 1], gap="large")
 with col1:
     user_input = st.text_area("INPUT MEMORY", height=150, placeholder="Describe your memory...")
     analyze_btn = st.button("GENERATE")
+    
+    # デバッグ用：サイドバーに現在使えるモデルを表示（本番は隠してもOK）
+    with st.sidebar:
+        st.write("System Status:")
+        if api_key:
+            current_model, all_models = get_strictly_safe_model(api_key)
+            st.success(f"Active Model: {current_model}")
+            with st.expander("Available Models List"):
+                st.write(all_models)
+        else:
+            st.error("No API Key")
 
 if analyze_btn:
     if not user_input:
@@ -99,12 +111,9 @@ if analyze_btn:
     elif len(api_key) < 10:
         st.error("API Key Error. Please check Secrets.")
     else:
-        # 安全なモデルを探索
-        with st.spinner('Initializing...'):
-            target_model = get_safe_model(api_key)
-            # st.success(f"Selected Model: {target_model}") # デバッグ用（あとで消してOK）
-
-        with st.spinner(f'Curating...'):
+        target_model, _ = get_strictly_safe_model(api_key)
+        
+        with st.spinner(f'Processing with {target_model}...'):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
             headers = {'Content-Type': 'application/json'}
             
@@ -129,8 +138,10 @@ if analyze_btn:
                 
                 if response.status_code != 200:
                     st.error(f"API Error ({response.status_code})")
+                    # エラー詳細を表示
                     try:
-                        st.json(response.json())
+                        err_json = response.json()
+                        st.code(json.dumps(err_json, indent=2))
                     except:
                         st.write(response.text)
                 else:
@@ -140,7 +151,6 @@ if analyze_btn:
                     output = json.loads(raw_text)
                     
                     encoded_prompt = urllib.parse.quote(output['image_prompt'])
-                    # キャッシュ回避のためseedを時間ベースに
                     import time
                     seed = int(time.time())
                     image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
